@@ -2,25 +2,48 @@
 
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #16211d;
+  --card: #ffffff;
+  --accent: #0e7c7b;
+  --accent-foreground: #ffffff;
+  --muted: #5b6a62;
+  --border: #d7ded6;
+  --danger: #b3403a;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-danger: var(--danger);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #0f1512;
+    --foreground: #e7ece6;
+    --card: #182019;
+    --accent: #35c6be;
+    --accent-foreground: #06201e;
+    --muted: #93a29a;
+    --border: #2b352e;
+    --danger: #e2867e;
   }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+input,
+select {
+  color-scheme: light dark;
 }
