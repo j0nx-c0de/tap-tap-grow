@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { Logo } from "@/app/components/logo";
 import { verifyAdminPassword, type AdminLoginState } from "./actions";
 
 const initialState: AdminLoginState = { status: "idle" };
@@ -14,8 +15,8 @@ export default function AdminLoginPage() {
         action={action}
         className="w-full max-w-xs rounded-2xl border border-border bg-card p-8 text-center shadow-sm"
       >
-        <p className="font-mono text-xs uppercase tracking-widest text-accent">Tap Loop</p>
-        <h1 className="mt-3 text-xl font-semibold">Admin sign-in</h1>
+        <Logo markSize={22} className="justify-center text-base" />
+        <h1 className="mt-4 text-xl font-semibold">Admin sign-in</h1>
         <input
           name="password"
           type="password"
