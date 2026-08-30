@@ -6,7 +6,12 @@ import { pgTable, uuid, text, integer, boolean, timestamp, pgEnum, unique } from
 // to "hub" and the field is kept around as a label, not branched on.
 export const tagType = pgEnum("tag_type", ["signup", "review", "punch", "hub"]);
 export const redemptionKind = pgEnum("redemption_kind", ["reward", "stamp"]);
-export const redemptionStatus = pgEnum("redemption_status", ["pending", "approved"]);
+// pending  — staff still need to confirm the underlying claim happened.
+// approved — legitimate and unspent: the customer is owed this.
+// redeemed — terminal. The reward was handed over; the code is dead and can
+//            never be honoured again. Splitting this out of "approved" is
+//            what stops a screenshot of an old reward being presented twice.
+export const redemptionStatus = pgEnum("redemption_status", ["pending", "approved", "redeemed"]);
 export const redemptionModeEnum = pgEnum("redemption_mode", ["honor", "staff_verified"]);
 // 'none' — review/follow links only, nothing to claim.
 // 'flat' — do any/all of them, claim one reward, once, ever.
@@ -18,6 +23,8 @@ export const eventType = pgEnum("event_type", [
   "review_click",
   "redemption_created",
   "redemption_approved",
+  "redemption_redeemed",
+  "punch_tap",
 ]);
 
 export const businesses = pgTable("businesses", {
@@ -111,6 +118,43 @@ export const redemptions = pgTable("redemptions", {
   rewardSnapshot: text("reward_snapshot").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   approvedAt: timestamp("approved_at", { withTimezone: true }),
+  redeemedAt: timestamp("redeemed_at", { withTimezone: true }),
+});
+
+// An NTAG 424 DNA tag the business physically holds — the digital equivalent
+// of a hole punch. Unlike `tags` (dumb NTAG213 stickers whose URL is static
+// and therefore replayable from browser history), every tap of one of these
+// emits a fresh URL carrying an encrypted UID + read counter and a CMAC that
+// only the chip could have produced. Possessing the tag is the authority;
+// where the business sticks it decides the policy (counter = anyone who walks
+// in, behind the counter = staff decide).
+export const punchTags = pgTable("punch_tags", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  businessId: uuid("business_id")
+    .notNull()
+    .references(() => businesses.id, { onDelete: "cascade" }),
+  // The static part of the URL written to the chip: /p/<key>?picc_data=..&cmac=..
+  key: text("key").notNull().unique(),
+  label: text("label"),
+  // Hex-encoded AES-128 SUN keys, matching what was provisioned onto the chip.
+  // metaKey decrypts picc_data (UID + read counter); fileKey derives the
+  // session key the CMAC is checked against.
+  sdmMetaKey: text("sdm_meta_key").notNull(),
+  sdmFileKey: text("sdm_file_key").notNull(),
+  // Learned from the first valid tap and pinned after, so a second chip
+  // provisioned with the same keys still cannot stamp for this business.
+  uid: text("uid"),
+  // The chip counter only ever increments. A tap at or below this is a replay.
+  lastCounter: integer("last_counter").notNull().default(0),
+  // The counter a stamp was last actually awarded for. Distinct from
+  // lastCounter because a tap is verified before we know who is holding the
+  // phone — a first-time customer has to identify themselves first. Gating the
+  // award on this makes that second step single-use without needing to park
+  // the pending tap in its own table.
+  lastAwardedCounter: integer("last_awarded_counter").notNull().default(0),
+  tapCount: integer("tap_count").notNull().default(0),
+  lastTappedAt: timestamp("last_tapped_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const events = pgTable("events", {

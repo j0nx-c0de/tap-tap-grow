@@ -1,11 +1,13 @@
 "use server";
 
+import { randomBytes } from "crypto";
 import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getDb } from "@/db";
-import { businesses, tags } from "@/db/schema";
+import { businesses, punchTags, tags } from "@/db/schema";
 import { clearAdminSession, isAdminAuthed } from "@/lib/auth";
+import { generatePunchTagKey } from "@/lib/codes";
 
 const urlOrEmpty = z
   .string()
@@ -154,4 +156,25 @@ export async function addTag(businessId: string, formData: FormData): Promise<vo
 export async function logoutAdmin(): Promise<void> {
   await clearAdminSession();
   redirect("/admin/login");
+}
+
+// Register a DNA punch tag. The two AES-128 keys are generated here and then
+// written onto the physical chip during provisioning — they never travel over
+// the air on a tap, which is what makes a captured tap URL useless without
+// them.
+export async function addPunchTag(businessId: string, formData: FormData): Promise<void> {
+  await requireAdmin();
+
+  const label = String(formData.get("label") ?? "").trim();
+  const db = getDb();
+
+  await db.insert(punchTags).values({
+    businessId,
+    key: generatePunchTagKey(),
+    label: label || null,
+    sdmMetaKey: randomBytes(16).toString("hex").toUpperCase(),
+    sdmFileKey: randomBytes(16).toString("hex").toUpperCase(),
+  });
+
+  redirect(`/admin/businesses/${businessId}`);
 }

@@ -40,6 +40,47 @@ A business that wants the old "leave a review, get 10% off, done" behavior
 is just `flat` — there's no separate code path for it, and no business is
 pushed toward the punch-card mechanic if they don't want it.
 
+### Redeeming, and why a screenshot doesn't work
+
+A reward moves through three states: `pending` (staff still need to confirm
+the claim behind it), `approved` (legitimate and unspent — the customer is
+owed this), and `redeemed`, which is a one-way door with a timestamp.
+
+Redeeming is a deliberate two-tap step on the customer's phone, and what it
+produces is a screen that **moves** — a rotating sweep, a clock ticking real
+seconds, a countdown. Staff have one job: *is it moving?* A screenshot is
+frozen and its clock is wrong. Any later viewing of the same reward renders a
+red **ALREADY REDEEMED** card stamped with when it was claimed, so there's
+nothing to compare and no date arithmetic to do.
+
+The ten-minute window isn't the security control — the motion is. A screenshot
+fails regardless of how long the window is, so a short one would only punish a
+customer waiting on busy staff.
+
+### Punch tags (NTAG 424 DNA)
+
+Optional, and the closest thing to handing a business back its hole punch. A
+punch tag is a tag the business physically keeps; staff say "tap your phone
+here." No console, no PIN, no device to check. Generate one per business in
+admin, which mints the two AES-128 keys to provision onto the chip.
+
+This needs DNA silicon rather than the cheap NTAG213 stickers the hub tags
+use. A static URL is visible in the customer's address bar the instant they
+tap it, so they'd own the punch forever. A DNA chip rewrites its URL on every
+tap with an encrypted UID, a monotonic counter, and a CMAC derived from keys
+that can't be read back off the chip — a captured URL is inert on the next
+tap. Verification lives in `lib/sun.ts` (NXP AN12196, on Node's built-in
+crypto).
+
+**Where the business sticks it is the policy** — there's no setting for this.
+On the counter means anyone who walks in earns a stamp; behind the counter
+means staff decide who gets one. Same hardware either way.
+
+A tap counts as a verified visit stamp, so it's subject to the same
+`punchCooldownMinutes` as any other visit, and it lands `approved` even at a
+`staff_verified` business — the tap *is* the approval, which is the whole
+point of handing them a tag instead of a console.
+
 ### Activities
 
 The claimable activities are Google review, Yelp review, Facebook review,
@@ -52,11 +93,16 @@ one order.
 
 ### Identity
 
-Identity is by phone number, entered explicitly on every visit (prefilled
-from `localStorage` for convenience, not relied on for identity) rather than
-a cookie surviving between taps on different days — this is what lets a
-punch card accumulate stamps for the same person across visits without
-needing an account or login.
+Identity is by phone number, entered explicitly on the hub (prefilled from
+`localStorage` for convenience) — this is what lets a punch card accumulate
+stamps for the same person across visits without needing an account or login.
+
+Identifying also sets a signed, year-long contact cookie. That exists for
+punch tags specifically: a tap lands on a URL that knows nothing about who's
+holding the phone, and making someone re-type their number at the counter
+would defeat the point of a one-tap stamp. It's a convenience credential for a
+loyalty card, not a login — worst case someone else's phone earns a stamp, and
+every reward it leads to is still gated behind the redemption step.
 
 **Redemption verification is a config toggle per business**
 (`redemptionMode`: `honor` vs `staff_verified`), not a fixed choice — no
@@ -71,7 +117,10 @@ uniformly to every stamp and reward a business issues.
    and `AUTH_SECRET` (generate with the command in the example file).
    Twilio and Resend are optional locally — without them, messages are
    logged to the console instead of sent.
-2. `npm run db:push` — syncs `db/schema.ts` to your database. Fine for this
+2. `npm run db:push` — syncs `db/schema.ts` to your database. An existing
+   database also needs `drizzle/0001_verifiable_redemption.sql` applied (the
+   `redeemed` status, `redeemed_at`, and the `punch_tags` table); it's
+   additive, so it's safe to run against data you already have. Fine for this
    stage; switch to `npm run db:generate` + versioned migrations once real
    customer data exists that you can't casually reset. Note: `push`'s
    interactive rename/conflict prompts don't work in every shell — if it
@@ -100,6 +149,9 @@ what a tag does later never requires touching the physical sticker again.
   per-business accounts later if businesses start wanting to self-manage.
 - **Landing page branding** — the hub page is clean but generic. Worth a
   real design pass once the flow is validated with real businesses.
+- **Physical DNA tag provisioning** — the SUN verification is tested against
+  NXP's published vectors and against a software chip that generates real tap
+  URLs, but no actual NTAG 424 DNA tag has been written and tapped yet.
 - **`flat` and `none` reward modes are untested live** — `punch_card` has
   been driven end-to-end against real data (including the goal-reached →
   reward-issued → card-reset path); the other two modes share the same

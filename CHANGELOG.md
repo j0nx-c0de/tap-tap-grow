@@ -228,3 +228,103 @@ live in the new Contacts page.
 `CHANGELOG.md`, `README.md`, and `ROADMAP.md` written to capture the above
 history and the current state, at the user's request, for continuity across
 future sessions.
+
+---
+
+## 2026-08-30 — Making a full punch card impossible to fake
+
+**The question that started it:** how does a store owner or employee tell a
+real, current reward from a screenshot of an old one — *without* being handed
+some new system to learn?
+
+**The reframe that decided the design:** a physical punch card's security is
+not what it looks like. Anti-forgery isn't the card, it's the *punch* — a
+distinctively shaped hole or a custom stamp that only the business owns.
+Anti-replay is the card being taken and binned at redemption. And staff verify
+nothing: they glance, count ten holes, hand over the coffee. So the bar isn't
+"no device" (a hole punch is a device) — it's "nothing that needs attention,
+a login, or a screen."
+
+Two things came out of that, and both shipped.
+
+### The hole that was actually open
+
+`redemptionStatus` only had `pending | approved`, and `approved` was terminal.
+A reward code stayed valid forever, so a screenshot of one worked as many
+times as it was shown. Split into `pending | approved | redeemed`:
+`approved` now means "legitimate and unspent — the customer is owed this,"
+and `redeemed` is a one-way door with a `redeemedAt` timestamp.
+
+### Option 1 — proof by motion, no hardware
+
+Redeeming is now a deliberate, two-tap, one-way step on the customer's phone
+("only tap this with staff watching"). What it turns into is a screen that
+**moves**: a continuously rotating arc, a clock ticking real seconds, and a
+countdown. Staff's whole job is *"is it moving?"* — a screenshot is frozen and
+its clock reads the wrong time. Past the window, or on any later viewing, the
+same reward renders as a red **ALREADY REDEEMED** card stamped with when it
+was claimed.
+
+The validity window is deliberately generous (ten minutes) because it is *not*
+the security control — the motion is. A screenshot is dead on arrival however
+long the window is, so a short window would only ever punish an honest
+customer waiting on a busy staff member. That reasoning is also why the sweep
+is a rotating arc rather than a progress ring: over ten minutes a progress
+sweep would crawl too slowly to read as movement.
+
+### Option 2 — an NTAG 424 DNA "punch tag"
+
+The literal digital hole punch: a tag the business physically holds. Staff say
+"tap your phone here." No console, no PIN, no device to check.
+
+This needs DNA silicon rather than the NTAG213 stickers the hub tags use,
+because a static URL is visible in the customer's own address bar the moment
+they tap it — they'd own the punch forever. A DNA chip rewrites its URL every
+tap with an encrypted UID + monotonic counter and a CMAC derived from keys
+that are write-only on the chip. A captured URL is inert on the next tap.
+
+SUN verification (NXP AN12196) is implemented on Node's built-in crypto in
+`lib/sun.ts` — AES-CMAC isn't in the standard library, so RFC 4493 subkey
+derivation and CBC-MAC are written out rather than adding a dependency for
+~50 lines. Verified against all four RFC 4493 CMAC vectors and NXP's published
+SUN vector before anything was wired to it.
+
+**Design decisions inside the tap flow:**
+- **Placement is the policy, not a setting.** Counter = anyone who walks in;
+  behind the counter = staff decide. Same hardware, same code — so it stayed a
+  deployment choice rather than becoming a toggle.
+- **The tap is the approval.** A stamp from a punch tap lands `approved` even
+  at a `staff_verified` business, and a reward it completes goes straight to
+  "ready to redeem." Routing proven stamps back into a pending queue would
+  defeat the point of handing the business a tag instead of a console.
+- **The visit cooldown still applies.** A tap proves presence, not intent —
+  and a customer-side tag could otherwise be tapped ten times in a row.
+- **Verification and awarding are separate steps.** A tap is verified before
+  anyone knows who's holding the phone; a first-time customer identifies
+  themselves and *then* gets credit. `lastAwardedCounter` (distinct from
+  `lastCounter`) makes that second half single-use without parking pending
+  taps in their own table.
+- **UID pinning.** The keys alone aren't identity, so the chip's UID is
+  learned on first sight and enforced after — a second chip provisioned with
+  the same keys can't stamp.
+
+### Incidental fixes found on the way
+
+- **A punch-card customer who filled their card and closed the page never saw
+  the reward again.** The row existed; nothing surfaced it. Outstanding
+  rewards now load for every reward mode, not just `flat`.
+- **Approving could resurrect a redeemed reward** — the staff console guarded
+  on "not already approved" rather than "still pending."
+- A contact session cookie (signed, a year long) now exists, which a punch tap
+  needs to know whose card to credit. `redeemReward` uses it to reject a
+  mismatched contact id rather than trusting the client's copy outright.
+- Two modules were pulled out of the `"use server"` actions file — everything
+  exported from one is a public endpoint, and both returned a contact's name,
+  stamp count and live reward code (`lib/hub-data.ts`, `lib/redeem.ts`).
+
+**Verified against live data:** 17 assertions covering forged keys, a wrong
+chip, URL replay, double-cashing one tap, the cooldown, card-fills-to-reward,
+and the full redeem → spent → still-spent lifecycle. Plus an HTTP pass
+confirming a genuine tap renders the identify screen and the same URL replayed
+renders "That tap was already used." A software DNA chip in the harness
+generates real SUN URLs, so the only untested link is physical provisioning.

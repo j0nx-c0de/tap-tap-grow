@@ -10,8 +10,9 @@ type Row = {
     kind: "reward" | "stamp";
     activity: string | null;
     code: string;
-    status: "pending" | "approved";
+    status: "pending" | "approved" | "redeemed";
     rewardSnapshot: string;
+    redeemedAt: Date | null;
   };
   contact: { name: string | null; phone: string } | null;
 };
@@ -19,6 +20,10 @@ type Row = {
 function kindLabel(redemption: Row["redemption"]): string {
   if (redemption.kind === "reward") return "Reward";
   return activityLabel(redemption.activity) || "Stamp";
+}
+
+function who(contact: Row["contact"]): string {
+  return contact?.name || contact?.phone || "—";
 }
 
 function ApproveButton() {
@@ -44,7 +49,16 @@ export function RedemptionConsole({
   rows: Row[];
 }) {
   const pending = rows.filter((r) => r.redemption.status === "pending");
-  const approved = rows.filter((r) => r.redemption.status === "approved").slice(0, 10);
+  // Rewards a customer has earned but not yet collected. Worth surfacing on
+  // its own: unlike a pending row there's nothing for staff to do here, but it
+  // tells them what's about to be handed over.
+  const waiting = rows.filter(
+    (r) => r.redemption.status === "approved" && r.redemption.kind === "reward",
+  );
+  const recent = rows
+    .filter((r) => r.redemption.status === "redeemed" || r.redemption.kind === "stamp")
+    .filter((r) => r.redemption.status !== "pending")
+    .slice(0, 10);
 
   return (
     <main className="mx-auto flex w-full max-w-lg flex-1 flex-col px-4 py-10">
@@ -52,7 +66,7 @@ export function RedemptionConsole({
       <h1 className="mt-2 text-2xl font-semibold">Redemptions</h1>
 
       <section className="mt-6">
-        <h2 className="text-sm font-medium text-muted">Pending ({pending.length})</h2>
+        <h2 className="text-sm font-medium text-muted">Waiting on you ({pending.length})</h2>
         <ul className="mt-2 flex flex-col gap-2">
           {pending.length === 0 && <li className="text-sm text-muted">Nothing waiting.</li>}
           {pending.map(({ redemption, contact }) => (
@@ -64,8 +78,7 @@ export function RedemptionConsole({
                 <p className="font-mono text-lg font-semibold tracking-widest">{redemption.code}</p>
                 <p className="text-sm">{redemption.rewardSnapshot}</p>
                 <p className="text-xs text-muted">
-                  {kindLabel(redemption)} ·{" "}
-                  {contact?.name || contact?.phone || "—"}
+                  {kindLabel(redemption)} · {who(contact)}
                 </p>
               </div>
               <form action={approveRedemption}>
@@ -79,15 +92,34 @@ export function RedemptionConsole({
       </section>
 
       <section className="mt-8">
-        <h2 className="text-sm font-medium text-muted">Recently approved</h2>
+        <h2 className="text-sm font-medium text-muted">Earned, not yet collected ({waiting.length})</h2>
+        <p className="mt-1 text-xs text-muted">
+          The customer redeems these on their own phone at the register — the screen they
+          show you has to be moving.
+        </p>
         <ul className="mt-2 flex flex-col gap-2">
-          {approved.length === 0 && <li className="text-sm text-muted">None yet.</li>}
-          {approved.map(({ redemption, contact }) => (
+          {waiting.length === 0 && <li className="text-sm text-muted">None right now.</li>}
+          {waiting.map(({ redemption, contact }) => (
+            <li key={redemption.id} className="rounded-xl border border-accent bg-card p-4">
+              <p className="font-mono text-lg font-semibold tracking-widest">{redemption.code}</p>
+              <p className="text-sm">{redemption.rewardSnapshot}</p>
+              <p className="text-xs text-muted">{who(contact)}</p>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="mt-8">
+        <h2 className="text-sm font-medium text-muted">Recent</h2>
+        <ul className="mt-2 flex flex-col gap-2">
+          {recent.length === 0 && <li className="text-sm text-muted">None yet.</li>}
+          {recent.map(({ redemption, contact }) => (
             <li key={redemption.id} className="rounded-xl border border-border p-4 opacity-70">
               <p className="font-mono text-sm tracking-widest">{redemption.code}</p>
               <p className="text-sm">{redemption.rewardSnapshot}</p>
               <p className="text-xs text-muted">
-                {kindLabel(redemption)} · {contact?.name || contact?.phone || "—"}
+                {kindLabel(redemption)} · {who(contact)}
+                {redemption.status === "redeemed" && " · collected"}
               </p>
             </li>
           ))}

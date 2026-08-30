@@ -37,6 +37,23 @@
   }
 }
 
+/* Liveness tell on the redeemed-reward screen. A screenshot of that card is
+   frozen, which is exactly what staff are asked to look for, so this animation
+   is load-bearing rather than decorative. */
+@keyframes tl-sweep {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.tl-sweep {
+  transform-origin: 50% 50%;
+  animation: tl-sweep 1.6s linear infinite;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);

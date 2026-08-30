@@ -38,7 +38,10 @@ export async function approveRedemption(formData: FormData): Promise<void> {
 
   const db = getDb();
   const [r] = await db.select().from(redemptions).where(eq(redemptions.id, redemptionId)).limit(1);
-  if (!r || r.status === "approved") return;
+  // Only a pending row is approvable. Guarding on "not pending" rather than
+  // "not already approved" also stops an approve click from resurrecting a
+  // reward that has since been redeemed.
+  if (!r || r.status !== "pending") return;
 
   await db
     .update(redemptions)

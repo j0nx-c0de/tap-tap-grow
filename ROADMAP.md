@@ -26,6 +26,18 @@ made; this file is only the forward-looking half.
   agreed approach from the start but hasn't actually been exercised with a
   physical tag yet — worth doing once before the first real sale, not
   discovering a snag mid-pitch.
+- **A real NTAG 424 DNA punch tag, provisioned and tapped.** The SUN
+  verification is tested against NXP's published vectors and against a
+  software chip that generates genuine tap URLs, so the server half is
+  known-good — but no physical DNA tag has been written yet. Needs tags
+  ordered (~$1.50–3 each, one per business) and a way to write the keys: a
+  USB reader like an ACR122U, or buying them pre-programmed. This is the one
+  step that can't be done with the free phone NFC-writer apps the NTAG213
+  hub tags use.
+- **Decide the default punch-tag placement per business.** Counter (anyone
+  who walks in earns a stamp) vs. behind the counter (staff decide). It's a
+  deployment choice with no code behind it, but it's worth having a default
+  answer at the door rather than improvising per pitch.
 
 ## Product decisions that need you, not more code
 
@@ -53,9 +65,13 @@ made; this file is only the forward-looking half.
 
 ## Known gaps, not blocking
 
-- **Landing page visual design.** The hub page is clean but generic —
-  flagged from the very first build as worth a real design pass once the
-  flow is validated with real businesses, still true.
+- **Landing page visual design.** A logo mark, favicon and blue palette
+  landed on 2026-08-30, but only on the landing page, admin login and admin
+  layout. The customer hub (`/t/[tagId]`) and the staff console still use the
+  old inline wordmark — the two screens customers and staff actually look at.
+- **Punch tags aren't deletable or re-keyable in admin.** Same gap as tags
+  below, but it matters more here: a lost or compromised tag currently has no
+  way to be revoked short of editing the database.
 - **No way to delete or reorder tags** in admin — you can add more (for
   extra physical placements) but not remove ones you no longer need or
   change their display order.

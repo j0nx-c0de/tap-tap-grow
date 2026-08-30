@@ -3,31 +3,64 @@
 import { useRef, useState, useTransition } from "react";
 import type { PublicBusiness } from "@/lib/business";
 import { availableActivities, VISIT_ACTIVITY } from "@/lib/activities";
-import { ClaimResult } from "./claim-result";
+import type { PunchAward } from "@/lib/punch-tag";
+import { RewardCard } from "./reward-card";
 import {
   claimActivity,
   claimFlatReward,
   claimVisitStamp,
   identifyContact,
   logActivityClick,
+  redeemReward,
   type ContactHubData,
+  type PunchTapContext,
 } from "./actions";
 
 const inputClass =
   "rounded-lg border border-border bg-background px-3 py-2 text-base outline-none focus:border-accent";
 
-type RewardResult = { code: string; approved: boolean; headline: string; description: string | null };
+function punchAwardMessage(award: PunchAward, punchGoal: number): string {
+  switch (award.status) {
+    case "stamped":
+      return `Stamp added — ${award.stampCount} of ${punchGoal}.`;
+    case "reward":
+      return "That filled your card!";
+    case "cooldown":
+      return `You've already been stamped for this visit — next one in about ${award.minutesRemaining} min.`;
+    case "already_awarded":
+      return "That tap has already been counted.";
+    case "error":
+      return award.message;
+  }
+}
 
-export function Hub({ business, tagId }: { business: PublicBusiness; tagId: string }) {
-  const [hub, setHub] = useState<ContactHubData | null>(null);
-  const [reward, setReward] = useState<RewardResult | null>(null);
+export function Hub({
+  business,
+  tagId,
+  punchTap = null,
+  initialHub = null,
+  initialPunchAward = null,
+}: {
+  business: PublicBusiness;
+  // Null when the customer arrived by tapping a DNA punch tag rather than one
+  // of the business's ordinary hub tags.
+  tagId: string | null;
+  punchTap?: PunchTapContext | null;
+  initialHub?: ContactHubData | null;
+  initialPunchAward?: PunchAward | null;
+}) {
+  const [hub, setHub] = useState<ContactHubData | null>(initialHub);
   const [identifyError, setIdentifyError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(
+    initialPunchAward ? punchAwardMessage(initialPunchAward, business.punchGoal) : null,
+  );
+  const [showCard, setShowCard] = useState(false);
   const [pending, startTransition] = useTransition();
   const phoneRef = useRef<HTMLInputElement>(null);
 
   function handleIdentify(formData: FormData) {
     startTransition(async () => {
-      const result = await identifyContact(business.id, { status: "idle" }, formData);
+      const result = await identifyContact(business.id, punchTap, formData);
       if (result.status === "error") {
         setIdentifyError(result.message);
         return;
@@ -40,27 +73,48 @@ export function Hub({ business, tagId }: { business: PublicBusiness; tagId: stri
         }
         setIdentifyError(null);
         setHub(result.data);
-        if (result.data.flatRewardCode) {
-          setReward({
-            code: result.data.flatRewardCode,
-            approved: !!result.data.flatRewardApproved,
-            headline: business.rewardHeadline,
-            description: business.rewardDescription,
-          });
+        if (result.punchAward) {
+          setNotice(punchAwardMessage(result.punchAward, business.punchGoal));
         }
       }
     });
   }
 
-  if (reward) {
+  function handleRedeem() {
+    if (!hub) return;
+    startTransition(async () => {
+      const result = await redeemReward(business.id, hub.contactId);
+      if (result.status === "error") {
+        setNotice(result.message);
+        return;
+      }
+      setHub({ ...hub, reward: result.reward });
+    });
+  }
+
+  // An outstanding reward outranks the rest of the hub — it's the only thing
+  // the customer is at the counter for. Punch-card customers can still step
+  // back to their card, since they keep earning after this one.
+  if (hub?.reward && !showCard) {
     return (
-      <ClaimResult
-        businessName={business.name}
-        code={reward.code}
-        approved={reward.approved}
-        headline={reward.headline}
-        description={reward.description}
-      />
+      <div className="flex w-full max-w-sm flex-col items-center">
+        <RewardCard
+          businessName={business.name}
+          reward={hub.reward}
+          onRedeem={handleRedeem}
+          redeeming={pending}
+        />
+        {notice && <p className="mt-3 text-center text-sm text-muted">{notice}</p>}
+        {business.rewardMode === "punch_card" && (
+          <button
+            type="button"
+            onClick={() => setShowCard(true)}
+            className="mt-4 text-sm text-muted underline-offset-4 hover:text-foreground hover:underline"
+          >
+            View my punch card
+          </button>
+        )}
+      </div>
     );
   }
 
@@ -78,14 +132,20 @@ export function Hub({ business, tagId }: { business: PublicBusiness; tagId: stri
       >
         <p className="font-mono text-xs uppercase tracking-widest text-accent">{business.name}</p>
         <h1 className="mt-3 text-2xl font-semibold text-balance">
-          {business.rewardMode === "none" ? "Leave us a review" : "Get on the list"}
+          {punchTap
+            ? "Almost there"
+            : business.rewardMode === "none"
+              ? "Leave us a review"
+              : "Get on the list"}
         </h1>
         <p className="mt-2 text-sm text-muted">
-          {business.rewardMode === "punch_card"
-            ? "Tell us who you are and start earning stamps."
-            : business.rewardMode === "flat"
-              ? "Tell us who you are, then claim your reward below."
-              : "We'd love your feedback — leave us your info and hop to a review link below."}
+          {punchTap
+            ? "Your stamp is waiting — tell us who you are so we know whose card to put it on."
+            : business.rewardMode === "punch_card"
+              ? "Tell us who you are and start earning stamps."
+              : business.rewardMode === "flat"
+                ? "Tell us who you are, then claim your reward below."
+                : "We'd love your feedback — leave us your info and hop to a review link below."}
         </p>
 
         <div className="mt-6 flex flex-col gap-4">
@@ -139,7 +199,9 @@ export function Hub({ business, tagId }: { business: PublicBusiness; tagId: stri
       tagId={tagId}
       hub={hub}
       setHub={setHub}
-      setReward={setReward}
+      notice={notice}
+      setNotice={setNotice}
+      onBackToReward={hub.reward ? () => setShowCard(false) : null}
       pending={pending}
       startTransition={startTransition}
     />
@@ -151,35 +213,43 @@ function ReadyHub({
   tagId,
   hub,
   setHub,
-  setReward,
+  notice,
+  setNotice,
+  onBackToReward,
   pending,
   startTransition,
 }: {
   business: PublicBusiness;
-  tagId: string;
+  tagId: string | null;
   hub: ContactHubData;
   setHub: (h: ContactHubData) => void;
-  setReward: (r: RewardResult) => void;
+  notice: string | null;
+  setNotice: (m: string | null) => void;
+  onBackToReward: (() => void) | null;
   pending: boolean;
   startTransition: (fn: () => void | Promise<void>) => void;
 }) {
   const activities = availableActivities(business);
   const [pendingCodes, setPendingCodes] = useState<Record<string, string>>({});
   const [claimingId, setClaimingId] = useState<string | null>(null);
-  const [visitMessage, setVisitMessage] = useState<string | null>(null);
 
   function afterClaim(activity: string, result: Awaited<ReturnType<typeof claimActivity>>) {
     if (result.status === "error") {
-      setVisitMessage(result.message);
+      setNotice(result.message);
       return;
     }
     if (result.status === "already_done") {
-      setHub({ ...hub, completedActivityIds: [...new Set([...hub.completedActivityIds, activity])] });
+      setHub({
+        ...hub,
+        completedActivityIds: [...new Set([...hub.completedActivityIds, activity])],
+      });
       return;
     }
     if (result.status === "cooldown") {
       setHub({ ...hub, visitCooldownMinutes: result.minutesRemaining });
-      setVisitMessage(`You already got a stamp on this visit — come back in about ${result.minutesRemaining} min.`);
+      setNotice(
+        `You already got a stamp on this visit — come back in about ${result.minutesRemaining} min.`,
+      );
       return;
     }
     if (result.status === "pending") {
@@ -191,25 +261,22 @@ function ReadyHub({
         ...hub,
         stampCount: result.stampCount,
         completedActivityIds:
-          activity === VISIT_ACTIVITY ? hub.completedActivityIds : [...hub.completedActivityIds, activity],
+          activity === VISIT_ACTIVITY
+            ? hub.completedActivityIds
+            : [...hub.completedActivityIds, activity],
         visitCooldownMinutes:
           activity === VISIT_ACTIVITY ? business.punchCooldownMinutes : hub.visitCooldownMinutes,
       });
       return;
     }
     if (result.status === "reward") {
-      setReward({
-        code: result.code,
-        approved: result.approved,
-        headline: result.headline,
-        description: result.description,
-      });
+      setHub({ ...hub, stampCount: 0, reward: result.reward });
     }
   }
 
   function claim(activityId: string) {
     setClaimingId(activityId);
-    setVisitMessage(null);
+    setNotice(null);
     startTransition(async () => {
       const result = await claimActivity(business.id, tagId, hub.contactId, activityId);
       afterClaim(activityId, result);
@@ -219,7 +286,7 @@ function ReadyHub({
 
   function claimVisit() {
     setClaimingId(VISIT_ACTIVITY);
-    setVisitMessage(null);
+    setNotice(null);
     startTransition(async () => {
       const result = await claimVisitStamp(business.id, tagId, hub.contactId);
       afterClaim(VISIT_ACTIVITY, result);
@@ -232,18 +299,23 @@ function ReadyHub({
     startTransition(async () => {
       const result = await claimFlatReward(business.id, tagId, hub.contactId);
       if (result.status === "reward") {
-        setReward({
-          code: result.code,
-          approved: result.approved,
-          headline: result.headline,
-          description: result.description,
-        });
+        setHub({ ...hub, reward: result.reward });
       } else if (result.status === "error") {
-        setVisitMessage(result.message);
+        setNotice(result.message);
       }
       setClaimingId(null);
     });
   }
+
+  const backLink = onBackToReward && (
+    <button
+      type="button"
+      onClick={onBackToReward}
+      className="mt-4 w-full text-center text-sm text-accent hover:opacity-80"
+    >
+      Back to my reward
+    </button>
+  );
 
   const activityLinks = (
     <div className="mt-6 flex flex-col gap-2">
@@ -281,7 +353,8 @@ function ReadyHub({
             </div>
             {pendingCode && (
               <p className="mt-1 font-mono text-xs text-muted">
-                Show <span className="font-semibold text-foreground">{pendingCode}</span> to staff to confirm.
+                Show <span className="font-semibold text-foreground">{pendingCode}</span> to staff to
+                confirm.
               </p>
             )}
           </div>
@@ -294,7 +367,9 @@ function ReadyHub({
     return (
       <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-8 shadow-sm">
         <p className="font-mono text-xs uppercase tracking-widest text-accent">{business.name}</p>
-        <h1 className="mt-3 text-2xl font-semibold text-balance">Thanks, {hub.name?.split(" ")[0] || "friend"}!</h1>
+        <h1 className="mt-3 text-2xl font-semibold text-balance">
+          Thanks, {hub.name?.split(" ")[0] || "friend"}!
+        </h1>
         <p className="mt-2 text-sm text-muted">If you have a minute, we&apos;d really appreciate it:</p>
         {activityLinks}
       </div>
@@ -306,9 +381,11 @@ function ReadyHub({
       <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-8 shadow-sm">
         <p className="font-mono text-xs uppercase tracking-widest text-accent">{business.name}</p>
         <h1 className="mt-3 text-2xl font-semibold text-balance">{business.rewardHeadline}</h1>
-        {business.rewardDescription && <p className="mt-2 text-sm text-muted">{business.rewardDescription}</p>}
+        {business.rewardDescription && (
+          <p className="mt-2 text-sm text-muted">{business.rewardDescription}</p>
+        )}
         {activityLinks}
-        {visitMessage && <p className="mt-4 text-sm text-danger">{visitMessage}</p>}
+        {notice && <p className="mt-4 text-sm text-danger">{notice}</p>}
         <button
           type="button"
           onClick={claimFlat}
@@ -317,6 +394,7 @@ function ReadyHub({
         >
           {pending && claimingId === "flat" ? "Claiming…" : "I did this — claim my reward"}
         </button>
+        {backLink}
       </div>
     );
   }
@@ -328,7 +406,9 @@ function ReadyHub({
     <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-8 shadow-sm">
       <p className="font-mono text-xs uppercase tracking-widest text-accent">{business.name}</p>
       <h1 className="mt-3 text-xl font-semibold text-balance">{business.rewardHeadline}</h1>
-      {business.rewardDescription && <p className="mt-1 text-sm text-muted">{business.rewardDescription}</p>}
+      {business.rewardDescription && (
+        <p className="mt-1 text-sm text-muted">{business.rewardDescription}</p>
+      )}
 
       <div className="mt-4">
         <div className="h-2 w-full overflow-hidden rounded-full bg-background">
@@ -352,12 +432,12 @@ function ReadyHub({
       </button>
       {pendingCodes[VISIT_ACTIVITY] && (
         <p className="mt-1 text-center font-mono text-xs text-muted">
-          Show <span className="font-semibold text-foreground">{pendingCodes[VISIT_ACTIVITY]}</span> to staff to
-          confirm.
+          Show <span className="font-semibold text-foreground">{pendingCodes[VISIT_ACTIVITY]}</span>{" "}
+          to staff to confirm.
         </p>
       )}
-      {visitMessage && <p className="mt-2 text-center text-sm text-danger">{visitMessage}</p>}
-      {onCooldown && !visitMessage && (
+      {notice && <p className="mt-2 text-center text-sm text-danger">{notice}</p>}
+      {onCooldown && !notice && (
         <p className="mt-2 text-center text-xs text-muted">
           Next visit stamp in about {hub.visitCooldownMinutes} min.
         </p>
@@ -369,6 +449,7 @@ function ReadyHub({
           {activityLinks}
         </>
       )}
+      {backLink}
     </div>
   );
 }
