@@ -2,7 +2,13 @@
 
 import { useRef, useState, useTransition } from "react";
 import type { PublicBusiness } from "@/lib/business";
-import { availableActivities, VISIT_ACTIVITY } from "@/lib/activities";
+import {
+  activityRedirectPath,
+  reviewActivities,
+  stampableActivities,
+  VISIT_ACTIVITY,
+  type AvailableActivity,
+} from "@/lib/activities";
 import type { PunchAward } from "@/lib/punch-tag";
 import { RewardCard } from "./reward-card";
 import {
@@ -10,7 +16,6 @@ import {
   claimFlatReward,
   claimVisitStamp,
   identifyContact,
-  logActivityClick,
   redeemReward,
   type ContactHubData,
   type PunchTapContext,
@@ -34,12 +39,46 @@ function punchAwardMessage(award: PunchAward, punchGoal: number): string {
   }
 }
 
+// Past this many stamps a row of dots stops reading as a punch card and
+// starts reading as noise on a phone-width screen, so the bar takes over.
+const MAX_DOTS = 12;
+
+// The card itself, as a card: holes punched left to right. Decorative — the
+// "X of Y stamps" line underneath is what actually gets announced, so this
+// is hidden from assistive tech rather than repeated to it.
+function PunchProgress({ stampCount, punchGoal }: { stampCount: number; punchGoal: number }) {
+  if (punchGoal > MAX_DOTS) {
+    return (
+      <div className="h-2 w-full overflow-hidden rounded-full bg-background">
+        <div
+          className="h-full rounded-full bg-accent transition-all"
+          style={{ width: `${Math.min(100, (stampCount / punchGoal) * 100)}%` }}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div aria-hidden="true" className="flex flex-wrap gap-1.5">
+      {Array.from({ length: punchGoal }, (_, i) => (
+        <span
+          key={i}
+          className={`h-6 w-6 rounded-full border transition-colors ${
+            i < stampCount ? "border-accent bg-accent" : "border-border bg-background"
+          }`}
+        />
+      ))}
+    </div>
+  );
+}
+
 export function Hub({
   business,
   tagId,
   punchTap = null,
   initialHub = null,
   initialPunchAward = null,
+  identifyCopy = null,
 }: {
   business: PublicBusiness;
   // Null when the customer arrived by tapping a DNA punch tag rather than one
@@ -48,6 +87,10 @@ export function Hub({
   punchTap?: PunchTapContext | null;
   initialHub?: ContactHubData | null;
   initialPunchAward?: PunchAward | null;
+  // Overrides the identify screen's wording. The default copy assumes someone
+  // who just tapped a tag in the shop; arriving at a saved link to your own
+  // card is a different moment and reads wrong with "Get on the list."
+  identifyCopy?: { title: string; body: string } | null;
 }) {
   const [hub, setHub] = useState<ContactHubData | null>(initialHub);
   const [identifyError, setIdentifyError] = useState<string | null>(null);
@@ -132,20 +175,24 @@ export function Hub({
       >
         <p className="font-mono text-xs uppercase tracking-widest text-accent">{business.name}</p>
         <h1 className="mt-3 text-2xl font-semibold text-balance">
-          {punchTap
-            ? "Almost there"
-            : business.rewardMode === "none"
-              ? "Leave us a review"
-              : "Get on the list"}
+          {identifyCopy
+            ? identifyCopy.title
+            : punchTap
+              ? "Almost there"
+              : business.rewardMode === "none"
+                ? "Leave us a review"
+                : "Get on the list"}
         </h1>
         <p className="mt-2 text-sm text-muted">
-          {punchTap
-            ? "Your stamp is waiting — tell us who you are so we know whose card to put it on."
-            : business.rewardMode === "punch_card"
-              ? "Tell us who you are and start earning stamps."
-              : business.rewardMode === "flat"
-                ? "Tell us who you are, then claim your reward below."
-                : "We'd love your feedback — leave us your info and hop to a review link below."}
+          {identifyCopy
+            ? identifyCopy.body
+            : punchTap
+              ? "Your stamp is waiting — tell us who you are so we know whose card to put it on."
+              : business.rewardMode === "punch_card"
+                ? "Tell us who you are and start earning stamps."
+                : business.rewardMode === "flat"
+                  ? "Tell us who you are, then claim your reward below."
+                  : "We'd love your feedback — leave us your info and hop to a review link below."}
         </p>
 
         <div className="mt-6 flex flex-col gap-4">
@@ -229,7 +276,11 @@ function ReadyHub({
   pending: boolean;
   startTransition: (fn: () => void | Promise<void>) => void;
 }) {
-  const activities = availableActivities(business);
+  // Two separate surfaces, deliberately. `earnable` can be claimed for a
+  // stamp; `reviews` never can and must not be rendered anywhere that
+  // implies otherwise — see `isStampableActivity` in lib/activities.ts.
+  const earnable = stampableActivities(business);
+  const reviews = reviewActivities(business);
   const [pendingCodes, setPendingCodes] = useState<Record<string, string>>({});
   const [claimingId, setClaimingId] = useState<string | null>(null);
 
@@ -317,39 +368,51 @@ function ReadyHub({
     </button>
   );
 
-  const activityLinks = (
-    <div className="mt-6 flex flex-col gap-2">
-      {activities.length === 0 && <p className="text-sm text-muted">Nothing to do here yet.</p>}
-      {activities.map((a) => {
+  function linkRow(a: AvailableActivity) {
+    return (
+      <a
+        key={a.id}
+        href={activityRedirectPath(business.id, tagId, a.id)}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="rounded-lg border border-border px-4 py-2.5 text-sm font-medium transition-colors hover:text-accent"
+      >
+        {a.label} ↗
+      </a>
+    );
+  }
+
+  // Claimable rows — follows only. A review can never appear here.
+  const earnableLinks = (
+    <div className="mt-3 flex flex-col gap-2">
+      {earnable.map((a) => {
         const done = hub.completedActivityIds.includes(a.id);
         const pendingCode = pendingCodes[a.id];
         return (
           <div key={a.id} className="rounded-lg border border-border px-4 py-2.5">
             <div className="flex items-center justify-between gap-3">
               <a
-                href={a.url}
+                href={activityRedirectPath(business.id, tagId, a.id)}
                 target="_blank"
                 rel="noopener noreferrer"
-                onClick={() => void logActivityClick(business.id, tagId, a.id)}
                 className="text-sm font-medium transition-colors hover:text-accent"
               >
                 {a.label} ↗
               </a>
-              {business.rewardMode === "punch_card" &&
-                (done ? (
-                  <span className="text-xs font-medium text-accent">✓ Done</span>
-                ) : pendingCode ? (
-                  <span className="text-xs text-muted">Pending</span>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => claim(a.id)}
-                    disabled={pending && claimingId === a.id}
-                    className="shrink-0 text-xs font-medium text-accent hover:opacity-80 disabled:opacity-50"
-                  >
-                    {pending && claimingId === a.id ? "…" : "I did this"}
-                  </button>
-                ))}
+              {done ? (
+                <span className="text-xs font-medium text-accent">✓ Done</span>
+              ) : pendingCode ? (
+                <span className="text-xs text-muted">Pending</span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => claim(a.id)}
+                  disabled={pending && claimingId === a.id}
+                  className="shrink-0 text-xs font-medium text-accent hover:opacity-80 disabled:opacity-50"
+                >
+                  {pending && claimingId === a.id ? "…" : "I did this"}
+                </button>
+              )}
             </div>
             {pendingCode && (
               <p className="mt-1 font-mono text-xs text-muted">
@@ -363,6 +426,31 @@ function ReadyHub({
     </div>
   );
 
+  // Reviews: shown and click-tracked, never rewarded, and never adjacent to
+  // anything claimable. Yelp is split out of the ask entirely — Yelp's
+  // guidelines forbid soliciting reviews at all, so it gets a neutral
+  // "find us" heading rather than sitting under a request.
+  const asks = reviews.filter((a) => a.solicitable);
+  const pointers = reviews.filter((a) => !a.solicitable);
+
+  const reviewBlock = reviews.length > 0 && (
+    <div className="mt-6 border-t border-border pt-5">
+      {asks.length > 0 && (
+        <>
+          <p className="text-sm font-medium">Enjoying {business.name}?</p>
+          <p className="mt-0.5 text-xs text-muted">A review helps other people find us.</p>
+          <div className="mt-3 flex flex-col gap-2">{asks.map(linkRow)}</div>
+        </>
+      )}
+      {pointers.length > 0 && (
+        <div className={asks.length > 0 ? "mt-4" : ""}>
+          <p className="text-sm font-medium">Find us online</p>
+          <div className="mt-3 flex flex-col gap-2">{pointers.map(linkRow)}</div>
+        </div>
+      )}
+    </div>
+  );
+
   if (business.rewardMode === "none") {
     return (
       <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-8 shadow-sm">
@@ -370,8 +458,13 @@ function ReadyHub({
         <h1 className="mt-3 text-2xl font-semibold text-balance">
           Thanks, {hub.name?.split(" ")[0] || "friend"}!
         </h1>
-        <p className="mt-2 text-sm text-muted">If you have a minute, we&apos;d really appreciate it:</p>
-        {activityLinks}
+        {earnable.length > 0 && (
+          <div className="mt-4 flex flex-col gap-2">{earnable.map(linkRow)}</div>
+        )}
+        {reviewBlock}
+        {earnable.length === 0 && reviews.length === 0 && (
+          <p className="mt-2 text-sm text-muted">Nothing to do here yet.</p>
+        )}
       </div>
     );
   }
@@ -384,16 +477,23 @@ function ReadyHub({
         {business.rewardDescription && (
           <p className="mt-2 text-sm text-muted">{business.rewardDescription}</p>
         )}
-        {activityLinks}
         {notice && <p className="mt-4 text-sm text-danger">{notice}</p>}
+        {/* The reward is for signing up, and claiming it comes before the
+            review links rather than after — the old order read as "do one of
+            these, then claim," which is the conditional offer Google's policy
+            prohibits. */}
         <button
           type="button"
           onClick={claimFlat}
           disabled={pending && claimingId === "flat"}
           className="mt-6 w-full rounded-full bg-accent px-6 py-3 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
         >
-          {pending && claimingId === "flat" ? "Claiming…" : "I did this — claim my reward"}
+          {pending && claimingId === "flat" ? "Claiming…" : "Claim my reward"}
         </button>
+        {earnable.length > 0 && (
+          <div className="mt-4 flex flex-col gap-2">{earnable.map(linkRow)}</div>
+        )}
+        {reviewBlock}
         {backLink}
       </div>
     );
@@ -411,13 +511,8 @@ function ReadyHub({
       )}
 
       <div className="mt-4">
-        <div className="h-2 w-full overflow-hidden rounded-full bg-background">
-          <div
-            className="h-full rounded-full bg-accent transition-all"
-            style={{ width: `${Math.min(100, (hub.stampCount / business.punchGoal) * 100)}%` }}
-          />
-        </div>
-        <p className="mt-1 text-xs text-muted">
+        <PunchProgress stampCount={hub.stampCount} punchGoal={business.punchGoal} />
+        <p className="mt-2 text-xs text-muted">
           {hub.stampCount} of {business.punchGoal} stamps
         </p>
       </div>
@@ -443,12 +538,13 @@ function ReadyHub({
         </p>
       )}
 
-      {activities.length > 0 && (
+      {earnable.length > 0 && (
         <>
           <p className="mt-6 text-sm font-medium">Also earn a stamp by:</p>
-          {activityLinks}
+          {earnableLinks}
         </>
       )}
+      {reviewBlock}
       {backLink}
     </div>
   );

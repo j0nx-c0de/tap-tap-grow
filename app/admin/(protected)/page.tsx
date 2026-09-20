@@ -1,62 +1,88 @@
-import { and, desc, eq } from "drizzle-orm";
 import Link from "next/link";
 import { getDb } from "@/db";
-import { businesses, contacts, redemptions } from "@/db/schema";
+import { eventSeries, loadDashboardMetrics } from "@/lib/metrics";
+import { loadPendingRedemptions, isStale } from "@/lib/redemptions";
+import { relativeTime } from "@/lib/time";
+import { MetricCard } from "@/app/components/metrics/kpi-tile";
 
-export default async function AdminHomePage() {
+// A daily-glance window, not the configurable one Dashboard offers — this
+// page answers "how's it going lately," not "let me pick a range."
+const OVERVIEW_WINDOW = "7d" as const;
+const NEEDS_ATTENTION_PREVIEW = 5;
+
+export default async function AdminOverviewPage() {
   const db = getDb();
-  const list = await db.select().from(businesses).orderBy(desc(businesses.createdAt));
-
-  const withStats = await Promise.all(
-    list.map(async (b) => {
-      const contactCount = await db.$count(contacts, eq(contacts.businessId, b.id));
-      const pendingCount = await db.$count(
-        redemptions,
-        and(eq(redemptions.businessId, b.id), eq(redemptions.status, "pending")),
-      );
-      return { ...b, contactCount, pendingCount };
-    }),
-  );
+  const [metrics, reviewSeries, returnSeries, pending] = await Promise.all([
+    loadDashboardMetrics(db, null, OVERVIEW_WINDOW),
+    eventSeries(db, null, "review_click", OVERVIEW_WINDOW),
+    eventSeries(db, null, "punch_tap", OVERVIEW_WINDOW),
+    loadPendingRedemptions(db),
+  ]);
+  const preview = pending.slice(0, NEEDS_ATTENTION_PREVIEW);
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Businesses</h1>
-        <Link
-          href="/admin/businesses/new"
-          className="rounded-full bg-accent px-5 py-2.5 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90"
-        >
-          + New business
-        </Link>
+      <h1 className="text-2xl font-semibold">Overview</h1>
+      <p className="mt-1 text-sm text-muted">Across all {metrics.businessCount} businesses, last 7 days.</p>
+
+      <div className="mt-6 grid gap-3 sm:grid-cols-3">
+        <MetricCard
+          label="Review taps"
+          current={metrics.reviewTaps.current}
+          previous={metrics.reviewTaps.previous}
+          sparkline={{ points: reviewSeries, color: "var(--viz-series-1)" }}
+        />
+        <MetricCard
+          label="Return taps"
+          current={metrics.returnTaps.current}
+          previous={metrics.returnTaps.previous}
+          sparkline={{ points: returnSeries, color: "var(--viz-series-3)" }}
+        />
+        <MetricCard label="Punches awarded" current={metrics.punches.current} previous={metrics.punches.previous} />
       </div>
 
-      {withStats.length === 0 ? (
-        <p className="mt-8 text-muted">No businesses yet — add your first one.</p>
-      ) : (
-        <ul className="mt-6 flex flex-col gap-3">
-          {withStats.map((b) => (
-            <li key={b.id}>
-              <Link
-                href={`/admin/businesses/${b.id}`}
-                className="flex items-center justify-between rounded-xl border border-border bg-card p-4 transition-colors hover:border-accent"
+      <section className="mt-10">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold">Needs attention</h2>
+          {pending.length > 0 && (
+            <Link href="/admin/needs-attention" className="text-sm text-accent hover:opacity-80">
+              See all {pending.length} →
+            </Link>
+          )}
+        </div>
+
+        {preview.length === 0 ? (
+          <p className="mt-3 text-sm text-muted">Nothing pending — every business is caught up.</p>
+        ) : (
+          <ul className="mt-3 flex flex-col gap-2">
+            {preview.map((r) => (
+              <li
+                key={r.id}
+                className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-3 text-sm"
               >
-                <div>
-                  <p className="font-medium">{b.name}</p>
-                  <p className="text-sm text-muted">/staff/{b.slug}</p>
+                <div className="min-w-0 truncate">
+                  <Link href={`/admin/businesses/${r.businessId}`} className="font-medium text-accent hover:opacity-80">
+                    {r.businessName}
+                  </Link>
+                  <span className="ml-2 text-muted">{r.rewardSnapshot}</span>
                 </div>
-                <div className="flex items-center gap-4 text-sm">
-                  <span>{b.contactCount} contacts</span>
-                  {b.pendingCount > 0 && (
-                    <span className="rounded-full bg-accent/15 px-2.5 py-1 font-medium text-accent">
-                      {b.pendingCount} pending
-                    </span>
-                  )}
-                </div>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
+                <span className={`shrink-0 text-xs font-medium ${isStale(r.createdAt) ? "text-danger" : "text-muted"}`}>
+                  {relativeTime(r.createdAt)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <div className="mt-10 flex flex-wrap gap-4 text-sm">
+        <Link href="/admin/businesses" className="text-accent hover:opacity-80">
+          All businesses →
+        </Link>
+        <Link href="/admin/dashboard" className="text-accent hover:opacity-80">
+          Full dashboard →
+        </Link>
+      </div>
     </div>
   );
 }

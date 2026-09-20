@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, boolean, timestamp, pgEnum, unique } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, integer, boolean, timestamp, pgEnum, unique, index } from "drizzle-orm/pg-core";
 
 // Postgres can't drop enum values once they're in use, so the old
 // signup/review/punch values stay valid even though every tag now renders
@@ -32,6 +32,27 @@ export const businesses = pgTable("businesses", {
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
 
+  // Who you (the operator) actually call when something's wrong with this
+  // business's account — distinct from `contacts`, which is that business's
+  // own customers tapping the NFC tag. Nullable so existing rows don't need
+  // a migration default; the admin form requires all three for new saves.
+  ownerName: text("owner_name"),
+  ownerEmail: text("owner_email"),
+  ownerPhone: text("owner_phone"),
+
+  // The street address of this specific location. Stored as separate parts
+  // rather than one blob so the admin list, search, and command palette can
+  // show and match on "Springfield, IL" next to the name — which is the whole
+  // point of collecting it: two rows named "Joe's Pizza" are either one
+  // chain's two locations or a competitor trading on a near-identical name,
+  // and only the address tells them apart. Nullable for the same reason the
+  // owner contact fields are; the admin form requires them for new saves.
+  addressLine1: text("address_line1"),
+  addressLine2: text("address_line2"),
+  city: text("city"),
+  state: text("state"),
+  postalCode: text("postal_code"),
+
   googleReviewUrl: text("google_review_url"),
   yelpReviewUrl: text("yelp_review_url"),
   facebookReviewUrl: text("facebook_review_url"),
@@ -58,11 +79,23 @@ export const businesses = pgTable("businesses", {
 
 export const tags = pgTable("tags", {
   id: uuid("id").primaryKey().defaultRandom(),
-  businessId: uuid("business_id")
-    .notNull()
-    .references(() => businesses.id, { onDelete: "cascade" }),
+  // Nullable: a batch-printed tag can exist as unclaimed inventory (no
+  // business bound yet) before being claimed at a business's sign-up.
+  businessId: uuid("business_id").references(() => businesses.id, { onDelete: "cascade" }),
   type: tagType("type").notNull().default("hub"),
   label: text("label"),
+  // Set (or reset) each time the tag is claimed or re-claimed to a
+  // business — null means unclaimed inventory.
+  claimedAt: timestamp("claimed_at", { withTimezone: true }),
+  // The human-typed credential that binds this physical tag to a business,
+  // or later rebinds the same physical sticker to a different one. Every
+  // tag gets one at creation, not just batch inventory, so any tag stays
+  // reassignable later without touching the hardware.
+  activationCode: text("activation_code").unique(),
+  // When set, a tap skips the hub and redirects straight to this activity's
+  // URL instead — plain text validated against ActivityId in application
+  // code, the same precedent as redemptions.activity below, not a DB enum.
+  directActivity: text("direct_activity"),
   tapCount: integer("tap_count").notNull().default(0),
   lastTappedAt: timestamp("last_tapped_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -157,14 +190,54 @@ export const punchTags = pgTable("punch_tags", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const events = pgTable("events", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  businessId: uuid("business_id")
-    .notNull()
-    .references(() => businesses.id, { onDelete: "cascade" }),
-  contactId: uuid("contact_id").references(() => contacts.id, { onDelete: "set null" }),
-  tagId: uuid("tag_id").references(() => tags.id, { onDelete: "set null" }),
-  type: eventType("type").notNull(),
-  platform: text("platform"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+// One-time credentials for the passwordless business-owner login. A row is
+// issued per sign-in request and dies on first use, on expiry, or on too
+// many wrong guesses — whichever comes first.
+export const ownerLoginTokens = pgTable(
+  "owner_login_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    businessId: uuid("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    // 'email' (a long token in a magic link) or 'sms' (a 6-digit code typed
+    // in). Plain text validated in application code rather than a pgEnum,
+    // the same call redemptions.activity makes — and one fewer enum to be
+    // stuck with, per the note at the top of this file.
+    channel: text("channel").notNull(),
+    // HMAC of the secret, never the secret itself: a database leak shouldn't
+    // hand over live logins.
+    secretHash: text("secret_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    // Brute-force guard, for the 6-digit SMS code specifically — a long
+    // emailed token isn't guessable, but a million-space code is.
+    attempts: integer("attempts").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  // Serves the send throttle, which counts a business's recent requests.
+  (table) => [index("owner_login_tokens_business_created_idx").on(table.businessId, table.createdAt)],
+);
+
+export const events = pgTable(
+  "events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    businessId: uuid("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    contactId: uuid("contact_id").references(() => contacts.id, { onDelete: "set null" }),
+    tagId: uuid("tag_id").references(() => tags.id, { onDelete: "set null" }),
+    type: eventType("type").notNull(),
+    platform: text("platform"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Every dashboard metric filters by type + a createdAt range, either
+    // across all businesses (admin rollup) or scoped to one — the two
+    // indexes match those two access patterns rather than one compromise
+    // index neither query would fully use.
+    index("events_type_created_at_idx").on(table.type, table.createdAt),
+    index("events_business_type_created_at_idx").on(table.businessId, table.type, table.createdAt),
+  ],
+);

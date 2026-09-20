@@ -9,6 +9,14 @@ type RewardMode = "none" | "flat" | "punch_card";
 type Initial = {
   name?: string;
   slug?: string;
+  ownerName?: string | null;
+  ownerEmail?: string | null;
+  ownerPhone?: string | null;
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
   googleReviewUrl?: string | null;
   yelpReviewUrl?: string | null;
   facebookReviewUrl?: string | null;
@@ -68,9 +76,106 @@ export function BusinessForm({
       </Field>
 
       <fieldset className="flex flex-col gap-3 rounded-xl border border-border p-4">
+        <legend className="px-1 text-sm font-medium text-muted">Business contact</legend>
+        <p className="-mt-1 text-xs text-muted">
+          Who you actually call about this account — not a customer.
+        </p>
+        <Field label="Owner/manager name">
+          <input name="ownerName" defaultValue={initial?.ownerName ?? ""} required className={inputClass} />
+        </Field>
+        <Field label="Phone number">
+          <input
+            name="ownerPhone"
+            type="tel"
+            defaultValue={initial?.ownerPhone ?? ""}
+            placeholder="(555) 123-4567"
+            required
+            className={inputClass}
+          />
+        </Field>
+        <Field label="Contact email" hint="optional">
+          <input
+            name="ownerEmail"
+            type="email"
+            defaultValue={initial?.ownerEmail ?? ""}
+            className={inputClass}
+          />
+        </Field>
+      </fieldset>
+
+      <fieldset className="flex flex-col gap-3 rounded-xl border border-border p-4">
+        <legend className="px-1 text-sm font-medium text-muted">Address</legend>
+        <p className="-mt-1 text-xs text-muted">
+          This location&apos;s street address — what tells two branches of the same chain, or a
+          competitor with a near-identical name, apart in your list.
+        </p>
+        <Field label="Street address">
+          <input
+            name="addressLine1"
+            defaultValue={initial?.addressLine1 ?? ""}
+            placeholder="1200 W Main St"
+            autoComplete="address-line1"
+            required
+            className={inputClass}
+          />
+        </Field>
+        <Field label="Suite / unit" hint="optional">
+          <input
+            name="addressLine2"
+            defaultValue={initial?.addressLine2 ?? ""}
+            placeholder="Suite 4"
+            autoComplete="address-line2"
+            className={inputClass}
+          />
+        </Field>
+        <div className="grid gap-3 sm:grid-cols-[2fr_1fr_1fr]">
+          <Field label="City">
+            <input
+              name="city"
+              defaultValue={initial?.city ?? ""}
+              autoComplete="address-level2"
+              required
+              className={inputClass}
+            />
+          </Field>
+          <Field label="State">
+            <input
+              name="state"
+              defaultValue={initial?.state ?? ""}
+              placeholder="IL"
+              autoComplete="address-level1"
+              maxLength={2}
+              pattern="[A-Za-z]{2}"
+              required
+              className={`${inputClass} uppercase`}
+            />
+          </Field>
+          <Field label="ZIP">
+            <input
+              name="postalCode"
+              defaultValue={initial?.postalCode ?? ""}
+              placeholder="62704"
+              autoComplete="postal-code"
+              inputMode="numeric"
+              pattern="\d{5}(-\d{4})?"
+              required
+              className={inputClass}
+            />
+          </Field>
+        </div>
+      </fieldset>
+
+      <fieldset className="flex flex-col gap-3 rounded-xl border border-border p-4">
         <legend className="px-1 text-sm font-medium text-muted">Review &amp; follow links</legend>
         <p className="-mt-1 text-xs text-muted">
           Only the links you fill in get offered to customers — leave the rest blank.
+        </p>
+        <p className="rounded-lg border border-border bg-background px-3 py-2 text-xs text-muted">
+          <span className="font-medium text-foreground">Reviews never earn a stamp.</span> Google
+          bans rewarding reviews — loyalty points included, and whether the review is positive or
+          not — and the penalty lands on the business, not on us. Review links are shown and
+          tracked, but only follows and visits are claimable. Yelp goes further and forbids asking
+          at all, so its link reads &ldquo;Find us on Yelp&rdquo; and sits apart from the ask.
         </p>
         <Field label="Google review">
           <input

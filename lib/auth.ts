@@ -96,6 +96,58 @@ export async function setContactSession(businessId: string, contactId: string): 
   });
 }
 
+// --- Business owner ------------------------------------------------------
+
+// The point of the passwordless login is that an owner bookmarks their
+// dashboard and never thinks about credentials again, so this outlives the
+// admin's 12-hour shift session by a lot. Same reasoning as the contact
+// cookie above, and the same modest stakes: read-only stats behind it.
+const OWNER_MAX_AGE = 60 * 60 * 24 * 365;
+
+// Keyed by business id rather than slug, so renaming a business's slug in
+// admin doesn't sign its owner out — and so someone who owns two businesses
+// is signed into both independently, the way the contact cookie already
+// works per business.
+function ownerCookieName(businessId: string): string {
+  return `mc_owner_${businessId}`;
+}
+
+export async function isOwnerAuthed(businessId: string): Promise<boolean> {
+  const store = await cookies();
+  return verify(store.get(ownerCookieName(businessId))?.value, businessId);
+}
+
+export async function setOwnerSession(businessId: string): Promise<void> {
+  const store = await cookies();
+  store.set(ownerCookieName(businessId), sign(businessId), {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: "lax",
+    maxAge: OWNER_MAX_AGE,
+    path: "/owner",
+  });
+}
+
+export async function clearOwnerSession(businessId: string): Promise<void> {
+  const store = await cookies();
+  store.delete({ name: ownerCookieName(businessId), path: "/owner" });
+}
+
+// What gets stored for a one-time login secret. Deliberately the same HMAC
+// the cookies above are signed with: a stolen database gives up neither a
+// live session nor a live login code without AUTH_SECRET too.
+export function hashLoginSecret(value: string): string {
+  return createHmac("sha256", secret()).update(value).digest("hex");
+}
+
+// Constant-time comparison of two stored hashes, for the same reason the
+// cookie check uses it.
+export function loginSecretMatches(candidate: string, storedHash: string): boolean {
+  const a = Buffer.from(hashLoginSecret(candidate));
+  const b = Buffer.from(storedHash);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 function staffCookieName(businessSlug: string): string {
   return `mc_staff_${businessSlug}`;
 }

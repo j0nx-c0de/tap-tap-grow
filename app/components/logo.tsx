@@ -27,7 +27,7 @@ export function Logo({ className, markSize = 24 }: { className?: string; markSiz
         <circle cx="14" cy="19.5" r="1.7" className="fill-accent" />
       </svg>
       <span className="text-lg font-extrabold tracking-tight">
-        <span className="text-foreground">TAP</span> <span className="text-accent">LOOP</span>
+        <span className="text-foreground">TAP TAP</span> <span className="text-accent">GROW</span>
       </span>
     </span>
   );

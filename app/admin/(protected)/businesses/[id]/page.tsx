@@ -4,9 +4,15 @@ import { notFound } from "next/navigation";
 import QRCode from "qrcode";
 import { getDb } from "@/db";
 import { businesses, contacts, punchCards, punchTags, redemptions, tags } from "@/db/schema";
+import { activityLabel, availableActivities } from "@/lib/activities";
+import { formatAddress, mapsUrl } from "@/lib/address";
+import { toPublicBusiness } from "@/lib/business";
+import { findSimilarBusinesses } from "@/lib/businesses";
+import { googleReviewUrlWarning } from "@/lib/google-review";
 import { appUrl } from "@/lib/url";
 import { BusinessForm } from "../../business-form";
-import { addPunchTag, addTag, updateBusiness } from "../../actions";
+import { addPunchTag, addTag, claimTag, updateBusiness } from "../../actions";
+import { ClaimTagForm } from "./claim-tag-form";
 
 export default async function EditBusinessPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -46,16 +52,65 @@ export default async function EditBusinessPage({ params }: { params: Promise<{ i
     .where(eq(punchTags.businessId, id))
     .orderBy(asc(punchTags.createdAt));
 
+  const address = formatAddress(business);
+  const similar = await findSimilarBusinesses(db, business);
+  // Checked here rather than at save time: this is the screen you are on
+  // immediately before writing a URL onto a physical tag, and a link that
+  // merely opens the listing instead of the review box fails silently
+  // afterwards — every tap still forwards, and still gets counted.
+  const googleWarning = googleReviewUrlWarning(business.googleReviewUrl);
+
   const updateAction = updateBusiness.bind(null, business.id);
   const addTagAction = addTag.bind(null, business.id);
   const addPunchTagAction = addPunchTag.bind(null, business.id);
+  const claimTagAction = claimTag.bind(null, business.id);
+  const activities = availableActivities(toPublicBusiness(business));
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
-      <Link href="/admin" className="text-sm text-muted hover:text-foreground">
+      <Link href="/admin/businesses" className="text-sm text-muted hover:text-foreground">
         ← Businesses
       </Link>
       <h1 className="mt-2 text-2xl font-semibold">{business.name}</h1>
+      {address ? (
+        <p className="mt-1 text-sm text-muted">
+          <a
+            href={mapsUrl(business)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-foreground"
+          >
+            {address}
+          </a>
+        </p>
+      ) : (
+        <p className="mt-1 text-sm text-muted">
+          No address on file — add one under Settings so this location can be told apart from
+          others with the same name.
+        </p>
+      )}
+
+      {similar.length > 0 && (
+        <div className="mt-3 rounded-xl border border-border bg-card p-3 text-sm">
+          <p className="font-medium">
+            {similar.length} other {similar.length === 1 ? "business" : "businesses"} with a
+            matching name
+          </p>
+          <p className="mt-0.5 text-xs text-muted">
+            Another location, or a competitor trading on the name — the address says which.
+          </p>
+          <ul className="mt-2 flex flex-col gap-1">
+            {similar.map((s) => (
+              <li key={s.id}>
+                <Link href={`/admin/businesses/${s.id}`} className="text-accent hover:opacity-80">
+                  {s.name}
+                </Link>{" "}
+                <span className="text-muted">— {s.addressLine || "no address on file"}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="mt-4 flex flex-wrap items-center gap-4 text-sm text-muted">
         <Link href={`/admin/businesses/${business.id}/contacts`} className="text-accent hover:opacity-80">
@@ -64,6 +119,12 @@ export default async function EditBusinessPage({ params }: { params: Promise<{ i
         <span>{pendingCount} pending redemptions</span>
         <span>{approvedCount} approved redemptions</span>
         <span>{punchCardCount} active punch cards</span>
+        <span>
+          {tagsWithQr.length + businessPunchTags.length} NFC {tagsWithQr.length + businessPunchTags.length === 1 ? "tag" : "tags"}
+        </span>
+        <Link href={`/admin/businesses/${business.id}/stats`} className="text-accent hover:opacity-80">
+          Stats →
+        </Link>
         <Link href={`/staff/${business.slug}`} className="text-accent hover:opacity-80">
           Staff console →
         </Link>
@@ -76,6 +137,12 @@ export default async function EditBusinessPage({ params }: { params: Promise<{ i
           fallback. Every tag opens the same page — add more just for extra physical placements
           (front counter, patio, a table tent).
         </p>
+        {googleWarning && (
+          <p className="mt-3 rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-sm">
+            <strong className="font-semibold">Check the Google link first — </strong>
+            {googleWarning}
+          </p>
+        )}
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           {tagsWithQr.map((tag) => (
             <div key={tag.id} className="flex gap-4 rounded-xl border border-border bg-card p-4">
@@ -89,10 +156,23 @@ export default async function EditBusinessPage({ params }: { params: Promise<{ i
               />
               <div className="min-w-0">
                 <p className="text-sm font-medium">{tag.label || "Tap link"}</p>
+                {tag.directActivity && (
+                  <p className="mt-0.5 text-xs font-medium text-accent">
+                    Direct → {activityLabel(tag.directActivity)}
+                  </p>
+                )}
                 <p className="mt-1 break-all font-mono text-xs text-muted">{tag.url}</p>
                 <p className="mt-1 text-xs text-muted">
                   {tag.tapCount} {tag.tapCount === 1 ? "tap" : "taps"}
                 </p>
+                {tag.activationCode && (
+                  <details className="mt-1">
+                    <summary className="cursor-pointer text-xs font-medium text-accent">
+                      Show activation code
+                    </summary>
+                    <p className="mt-1 font-mono text-xs text-muted">{tag.activationCode}</p>
+                  </details>
+                )}
               </div>
             </div>
           ))}
@@ -107,6 +187,21 @@ export default async function EditBusinessPage({ params }: { params: Promise<{ i
               className="rounded-lg border border-border bg-background px-3 py-2 text-base outline-none focus:border-accent"
             />
           </label>
+          <label className="flex flex-col gap-1 text-sm font-medium">
+            Point straight at <span className="font-normal text-muted">(optional)</span>
+            <select
+              name="directActivity"
+              defaultValue=""
+              className="rounded-lg border border-border bg-background px-3 py-2 text-base outline-none focus:border-accent"
+            >
+              <option value="">Full hub (default)</option>
+              {activities.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <button
             type="submit"
             className="rounded-full border border-border px-5 py-2 text-sm font-medium transition-colors hover:border-accent hover:text-accent"
@@ -114,6 +209,8 @@ export default async function EditBusinessPage({ params }: { params: Promise<{ i
             Add tag
           </button>
         </form>
+
+        <ClaimTagForm action={claimTagAction} activities={activities} />
       </section>
 
       <section className="mt-10">
@@ -197,6 +294,14 @@ export default async function EditBusinessPage({ params }: { params: Promise<{ i
             initial={{
               name: business.name,
               slug: business.slug,
+              ownerName: business.ownerName,
+              ownerEmail: business.ownerEmail,
+              ownerPhone: business.ownerPhone,
+              addressLine1: business.addressLine1,
+              addressLine2: business.addressLine2,
+              city: business.city,
+              state: business.state,
+              postalCode: business.postalCode,
               googleReviewUrl: business.googleReviewUrl,
               yelpReviewUrl: business.yelpReviewUrl,
               facebookReviewUrl: business.facebookReviewUrl,

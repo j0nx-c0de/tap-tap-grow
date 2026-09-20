@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Tap Loop",
+  title: "Tap Tap Grow",
   description: "NFC tap-to-review-and-reward loop for local businesses.",
 };
 

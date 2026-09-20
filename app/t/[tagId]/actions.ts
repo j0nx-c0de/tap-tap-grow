@@ -4,7 +4,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
 import { businesses, contacts, events, redemptions } from "@/db/schema";
-import { availableActivities, VISIT_ACTIVITY } from "@/lib/activities";
+import { stampableActivities, VISIT_ACTIVITY } from "@/lib/activities";
 import { getContactSession, setContactSession } from "@/lib/auth";
 import { toPublicBusiness } from "@/lib/business";
 import { generateRedemptionCode } from "@/lib/codes";
@@ -16,6 +16,7 @@ import { awardPunchTap, type PunchAward } from "@/lib/punch-tag";
 import { spendReward } from "@/lib/redeem";
 import { toRewardView, type RewardView } from "@/lib/redemption";
 import { sendSms } from "@/lib/sms";
+import { appUrl } from "@/lib/url";
 
 // --- Identify (opt-in capture, runs once per visit before anything else) --
 
@@ -94,10 +95,20 @@ export async function identifyContact(
 
     await db.insert(events).values({ businessId, contactId: contact.id, type: "signup" });
 
+    // Only new contacts get these — nobody wants a text every visit, and
+    // each one costs money. Which makes this the one chance to hand over a
+    // link back to their card: a message thread is where people actually
+    // look for it later.
+    const cardUrl = appUrl(`/card/${business.slug}`);
+
     if (business.smsEnabled && contact.smsOptIn) {
+      // Plain ASCII only, deliberately. A single non-GSM-7 character (an em
+      // dash, a curly quote) switches the whole message to UCS-2, which cuts
+      // the segment size from 160 characters to 70 and quietly doubles the
+      // per-signup send cost.
       await sendSms(
         contact.phone,
-        `Thanks for visiting ${business.name}! Reply STOP to opt out.`,
+        `Thanks for visiting ${business.name}! Your card: ${cardUrl} - reply STOP to opt out.`,
         business.smsFromNumber,
       );
     }
@@ -105,7 +116,8 @@ export async function identifyContact(
       await sendEmail(
         contact.email,
         `Thanks for visiting ${business.name}`,
-        `<p>Thanks for stopping by ${business.name}!</p>`,
+        `<p>Thanks for stopping by ${business.name}!</p>
+         <p>Check your card anytime at <a href="${cardUrl}">${cardUrl}</a>.</p>`,
       );
     }
   }
@@ -172,7 +184,10 @@ export async function claimActivity(
   const [business] = await db.select().from(businesses).where(eq(businesses.id, businessId)).limit(1);
   if (!business) return { status: "error", message: "Something went wrong." };
   if (business.rewardMode !== "punch_card") return { status: "error", message: "Not available." };
-  if (!availableActivities(toPublicBusiness(business)).some((a) => a.id === activityId)) {
+  // Validated against the *stampable* set, not every configured link: review
+  // activities are offered on the hub but can never earn a punch, and this is
+  // the boundary that guarantees it regardless of what the page rendered.
+  if (!stampableActivities(toPublicBusiness(business)).some((a) => a.id === activityId)) {
     return { status: "error", message: "Not available." };
   }
 
@@ -351,13 +366,4 @@ export async function claimFlatReward(
     status: "reward",
     reward: toRewardView(created, business.rewardHeadline, business.rewardDescription),
   };
-}
-
-export async function logActivityClick(
-  businessId: string,
-  tagId: string | null,
-  activityId: string,
-): Promise<void> {
-  const db = getDb();
-  await db.insert(events).values({ businessId, tagId, type: "review_click", platform: activityId });
 }

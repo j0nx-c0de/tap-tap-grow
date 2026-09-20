@@ -2,6 +2,7 @@ import { and, desc, eq } from "drizzle-orm";
 import type { getDb } from "@/db";
 import { businesses, contacts, punchCards, redemptions } from "@/db/schema";
 import { VISIT_ACTIVITY } from "@/lib/activities";
+import { getContactSession } from "@/lib/auth";
 import { isRewardVisible, toRewardView, type RewardView } from "@/lib/redemption";
 
 export type ContactHubData = {
@@ -21,6 +22,29 @@ export type ContactHubData = {
 // from one of those becomes a callable endpoint, and this returns a contact's
 // name, stamp count and live reward code — not something to expose behind
 // nothing but a guessed id.
+// The card for whoever this browser last identified as at this business, or
+// null if it's never identified here. Lets a page skip the identify form for
+// someone who has already filled it in once — the cookie is set at identify
+// and lasts a year, so a regular shouldn't be re-asked on every visit.
+export async function loadSessionHubData(
+  db: ReturnType<typeof getDb>,
+  business: typeof businesses.$inferSelect,
+): Promise<ContactHubData | null> {
+  const contactId = await getContactSession(business.id);
+  if (!contactId) return null;
+
+  // Scoped to this business as well as the id: the cookie is per business,
+  // but a contact id from elsewhere should never resolve here.
+  const [contact] = await db
+    .select()
+    .from(contacts)
+    .where(and(eq(contacts.id, contactId), eq(contacts.businessId, business.id)))
+    .limit(1);
+  if (!contact) return null;
+
+  return loadHubData(db, business, contact);
+}
+
 export async function loadHubData(
   db: ReturnType<typeof getDb>,
   business: typeof businesses.$inferSelect,

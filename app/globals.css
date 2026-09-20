@@ -24,8 +24,10 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* The rest of the app (customer-facing /t and /p pages) follows the OS/browser
+   dark setting with no manual override, same as it always has. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --background: #0b0f14;
     --foreground: #eef2f6;
     --card: #121821;
@@ -35,6 +37,104 @@
     --border: #232b36;
     --danger: #f47171;
   }
+}
+
+/* The admin/dashboard shell sets data-theme explicitly on its wrapper div
+   (cookie-persisted toggle, default light) — a plain attribute selector
+   here, not :root, since the attribute lives on that div rather than <html>
+   (customer-facing /t and /p pages share the same root layout and must keep
+   following the OS setting untouched, above). A same-element declaration
+   like this always wins over the inherited value from :root's media query,
+   regardless of specificity, so this is enough to force either mode. */
+[data-theme="light"] {
+  --background: #ffffff;
+  --foreground: #1a1a1a;
+  --card: #ffffff;
+  --accent: #188bf6;
+  --accent-foreground: #ffffff;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --danger: #e93d3d;
+}
+
+[data-theme="dark"] {
+  --background: #0b0f14;
+  --foreground: #eef2f6;
+  --card: #121821;
+  --accent: #4098fa;
+  --accent-foreground: #06121f;
+  --muted: #93a1b0;
+  --border: #232b36;
+  --danger: #f47171;
+}
+
+/* Chart tokens (dataviz skill reference palette) — kept separate from the
+   brand --accent above, since these are validated for categorical/CVD
+   safety as a set and shouldn't be mixed with arbitrary brand colors. */
+:root {
+  --viz-surface: #fcfcfb;
+  --viz-ink: #0b0b0b;
+  --viz-ink-secondary: #52514e;
+  --viz-muted: #898781;
+  --viz-grid: #e1e0d9;
+  --viz-baseline: #c3c2b7;
+  --viz-good: #006300;
+  --viz-critical: #d03b3b;
+  --viz-series-1: #2a78d6; /* blue */
+  --viz-series-2: #eb6834; /* orange */
+  --viz-series-3: #1baf7a; /* aqua */
+  --viz-series-4: #eda100; /* yellow */
+  --viz-series-5: #e87ba4; /* magenta */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --viz-surface: #1a1a19;
+    --viz-ink: #ffffff;
+    --viz-ink-secondary: #c3c2b7;
+    --viz-muted: #898781;
+    --viz-grid: #2c2c2a;
+    --viz-baseline: #383835;
+    --viz-good: #0ca30c;
+    --viz-critical: #e66767;
+    --viz-series-1: #3987e5;
+    --viz-series-2: #d95926;
+    --viz-series-3: #199e70;
+    --viz-series-4: #c98500;
+    --viz-series-5: #d55181;
+  }
+}
+
+[data-theme="light"] {
+  --viz-surface: #fcfcfb;
+  --viz-ink: #0b0b0b;
+  --viz-ink-secondary: #52514e;
+  --viz-muted: #898781;
+  --viz-grid: #e1e0d9;
+  --viz-baseline: #c3c2b7;
+  --viz-good: #006300;
+  --viz-critical: #d03b3b;
+  --viz-series-1: #2a78d6;
+  --viz-series-2: #eb6834;
+  --viz-series-3: #1baf7a;
+  --viz-series-4: #eda100;
+  --viz-series-5: #e87ba4;
+}
+
+[data-theme="dark"] {
+  --viz-surface: #1a1a19;
+  --viz-ink: #ffffff;
+  --viz-ink-secondary: #c3c2b7;
+  --viz-muted: #898781;
+  --viz-grid: #2c2c2a;
+  --viz-baseline: #383835;
+  --viz-good: #0ca30c;
+  --viz-critical: #e66767;
+  --viz-series-1: #3987e5;
+  --viz-series-2: #d95926;
+  --viz-series-3: #199e70;
+  --viz-series-4: #c98500;
+  --viz-series-5: #d55181;
 }
 
 /* Liveness tell on the redeemed-reward screen. A screenshot of that card is
@@ -52,6 +152,12 @@
 .tl-sweep {
   transform-origin: 50% 50%;
   animation: tl-sweep 1.6s linear infinite;
+}
+
+/* The command palette dialog's own box is styled with Tailwind utilities;
+   ::backdrop isn't reachable through those, so it gets a plain rule here. */
+dialog.command-palette::backdrop {
+  background: color-mix(in srgb, var(--foreground) 20%, transparent);
 }
 
 body {
