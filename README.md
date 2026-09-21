@@ -433,29 +433,32 @@ deploy, so in practice this is handled — but a config-only restart, or
 promoting a prebuilt image between environments, would silently keep serving
 the old domain in every QR code and tap link it generates.
 
-#### Why the apex, and why the hostname is effectively permanent
+#### Why `app.meetcompass.io`, and why the hostname is effectively permanent
 
-Production is `https://meetcompass.io` — the apex, not the
-`ttg.meetcompass.io` subdomain this was first stood up on.
+Production is `https://app.meetcompass.io` — a subdomain, not the apex.
 
-The reason is that an NFC tag stores the **whole URL**, hostname included.
-Once a tag is stuck to a counter, that hostname has to keep resolving for as
-long as the tag is in the field, and there is no remote way to rewrite it —
-fixing one means physically visiting the business with an NFC writer. So
-every hostname ever handed out is a permanent commitment.
+The original plan (see the 2026-09-11 entry in `CHANGELOG.md`) was the apex,
+for the reasons below. That changed on 2026-09-21, discovered while setting
+up the real deploy: `meetcompass.io` already serves a separate, live
+GoHighLevel-built site (Cloudflare-fronted). The apex isn't free to claim,
+so this app lives at `app.` instead, which also means a plain CNAME at the
+DNS provider rather than an apex A/ALIAS record.
 
-That rules against a subdomain named after the product. `ttg` is a product
-codename; it is exactly the string you would want to retire after a rename or
-a pivot, and you couldn't, because it would be sitting on hardware in other
-people's shops. The apex is the one hostname that survives any rename of the
-product, because it is the company rather than the product.
+The reasoning that *did* carry over: an NFC tag stores the **whole URL**,
+hostname included. Once a tag is stuck to a counter, that hostname has to
+keep resolving for as long as the tag is in the field, and there is no
+remote way to rewrite it — fixing one means physically visiting the business
+with an NFC writer. So every hostname ever handed out is a permanent
+commitment, which is exactly why this was checked *before* any tag got
+written — the single irreversible artifact here is a printed QR code, and
+none exist yet.
 
-The costs are small and worth naming: the apex can't take a CNAME, so it
-needs an A record pointing at Render's IP (or a DNS provider with
-ALIAS/ANAME flattening — Cloudflare and Namecheap both do), and a future
-marketing site has to live at `/` alongside the app's routes rather than
-having the domain to itself. `render.yaml` declares the domain and carries
-the same note.
+That same reasoning is why `app` (not `ttg`, the retired product codename)
+is the subdomain: it names the product's role, not a name you might rename
+later. If the GoHighLevel site at the apex is ever retired, moving this app
+up to the apex is possible in principle but not free — see the cost note
+below, and note it would need every tag already in the field to keep
+resolving at `app.` regardless, per the paragraph above.
 
 Every `appUrl()` call site is server-side (`lib/url.ts` is only reached from
 server components, server actions and the mail helpers), so the

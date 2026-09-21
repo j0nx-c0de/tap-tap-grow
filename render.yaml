@@ -15,13 +15,12 @@ services:
     buildCommand: npm ci && npm run build
     startCommand: npm start
     healthCheckPath: / # Static route, so the check costs no database query.
-    # The apex cannot take a CNAME, so point an A record at the IP Render
-    # shows for this service (or use a provider with ALIAS/ANAME flattening —
-    # Cloudflare and Namecheap both do). Add www.meetcompass.io here too if
-    # you want it; Render will serve it, but it needs its own DNS record, so
-    # it is left out until that record exists rather than sitting unverified.
+    # app.meetcompass.io, not the apex — meetcompass.io already serves a
+    # separate, live GoHighLevel site (found 2026-09-21, deploying this).
+    # A subdomain just needs a CNAME at your DNS provider, pointed at the
+    # hostname Render shows for this service under Settings > Custom Domains.
     domains:
-      - meetcompass.io
+      - app.meetcompass.io
     envVars:
       # Baked into the bundle at build time by `next build`, not read at
       # runtime — so changing it requires a rebuild, which a Render env var
@@ -31,11 +30,8 @@ services:
       # the least reversible value in this file. A tag carries the whole URL,
       # so every hostname ever handed out has to keep resolving for as long as
       # the tags are in the field — you cannot fix a tag you no longer hold.
-      # That is the argument for the apex over a subdomain named after the
-      # product: meetcompass.io survives a rename of the product, ttg. does
-      # not, and retiring it later would mean collecting tags back in person.
       - key: NEXT_PUBLIC_APP_URL
-        value: https://meetcompass.io
+        value: https://app.meetcompass.io
       - key: AUTH_SECRET
         generateValue: true
       - key: DATABASE_URL

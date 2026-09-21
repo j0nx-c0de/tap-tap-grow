@@ -944,3 +944,43 @@ contractually non-commercial and Cloudflare Workers isn't a Next 16 verified
 adapter.
 
 **Verified:** typecheck, lint and a production build all clean.
+
+---
+
+## 2026-09-21 — Deployed, and the apex plan changed on contact with reality
+
+**Committed three weeks of uncommitted work** (everything from the owner
+contact entry above through the reviews-only quick add) in one pass, pushed
+to a new GitHub repo, and stood up the actual Render Blueprint against a
+fresh production Neon database — all of it previously only exercised
+against local dev data.
+
+**The apex plan from 2026-09-11 didn't survive contact with the real
+domain.** Pointing DNS at Render turned up that `meetcompass.io` already
+serves a separate, live site built on GoHighLevel (Cloudflare-fronted) —
+apparently already in use for something else. The apex was never free to
+claim. Production is `https://app.meetcompass.io` instead, a plain CNAME
+rather than an apex A/ALIAS record. Caught before any harm done: per the
+2026-09-11 entry, the single irreversible artifact is a printed QR code, and
+none existed yet. `render.yaml`, `.env.example`, and the "Why the apex"
+section of this file's Deploying section (now "Why `app.meetcompass.io`")
+were updated to match — the reasoning about a tag's hostname being a
+permanent commitment still holds, it just now argues for `app.` over `ttg.`
+rather than for the bare apex.
+
+**Also fixed while getting the admin surface production-ready:**
+`addTag`, `claimTag`, `generateUnclaimedTags`, and `updateBusiness` in
+`app/admin/(protected)/actions.ts` never called `revalidatePath` — a
+mutation like adding a second NFC plate to a business saved correctly but
+didn't show up on screen until a manual reload. Found by actually clicking
+through the "sell a business a Google Review plate, then add a second plate
+and see which one taps more" flow in a browser rather than trusting that it
+compiled. `app/staff/[businessSlug]/actions.ts` and
+`app/owner/[businessSlug]/actions.ts` already had this right; the admin
+business/tag actions were the gap.
+
+**Verified live against the new production database:** schema pushed
+cleanly with no conflict prompts (empty database, nothing to disambiguate);
+all 8 tables confirmed present by querying `information_schema.tables`
+directly. The Render service itself answers on its `onrender.com` URL.
+DNS for `app.meetcompass.io` and the first real business are still ahead.
