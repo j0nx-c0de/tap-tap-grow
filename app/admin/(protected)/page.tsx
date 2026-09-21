@@ -22,8 +22,22 @@ export default async function AdminOverviewPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
-      <h1 className="text-2xl font-semibold">Overview</h1>
-      <p className="mt-1 text-sm text-muted">Across all {metrics.businessCount} businesses, last 7 days.</p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold">Overview</h1>
+          <p className="mt-1 text-sm text-muted">Across all {metrics.businessCount} businesses, last 7 days.</p>
+        </div>
+        {/* Same destination as the primary button on /admin/businesses
+            (the reviews-only quick add — the doorstep flow), just louder:
+            this is the page you land on, so it's the button most likely to
+            get tapped mid-pitch. */}
+        <Link
+          href="/admin/businesses/quick"
+          className="shrink-0 rounded-full bg-[#f5620a] px-6 py-3 text-base font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
+        >
+          + New Business
+        </Link>
+      </div>
 
       <div className="mt-6 grid gap-3 sm:grid-cols-3">
         <MetricCard
