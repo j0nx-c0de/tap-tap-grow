@@ -389,6 +389,8 @@ what a tag does later never requires touching the physical sticker again.
 
 ## Deploying
 
+**Live in production at `https://app.meetcompass.io`, deployed 2026-09-21.**
+
 **Host: Render Starter ($7/mo, always-on), settled 2026-09-11.** The original
 plan was Vercel + Neon, but the 2026-08-25 cost analysis found two problems
 with it: Vercel's Hobby tier is contractually non-commercial, so it can't be

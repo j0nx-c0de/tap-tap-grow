@@ -51,6 +51,12 @@ made; this file is only the forward-looking half.
   artifact that matters, and it's what a diligence request would ask to see.
 - **Change the default admin password and staff PINs** before handing this
   to anyone — `test-admin-pass` and `1234` are exactly what they sound like.
+  Partly done: production's `ADMIN_PASSWORD` (Render) was set to a real
+  value at deploy time on 2026-09-21, separate from the `test-admin-pass`
+  placeholder that local dev and `db/seed.ts`'s demo business still carry.
+  Staff PINs are still `1234` by default on every new business
+  (`businesses.staffPin`) — worth setting a real one per business as it's
+  created, not just fixing the platform-level password once.
 - **Physical tag provisioning, tried for real.** The write-on-demand plan
   (blank NTAG213 stickers + a phone NFC-writer app at point of sale) was the
   agreed approach from the start but hasn't actually been exercised with a
@@ -129,13 +135,13 @@ tracked-redirect route and claimable generic tags below have since shipped
 too — these haven't:
 
 - **A shorter, readable tag URL.** Tags currently carry
-  `meetcompass.io/t/<uuid>` — 36 characters of hex that nobody can read off
-  a sticker, say out loud, or sanity-check at a glance. It was chosen
+  `app.meetcompass.io/t/<uuid>` — 36 characters of hex that nobody can read
+  off a sticker, say out loud, or sanity-check at a glance. It was chosen
   deliberately for the viability test because it needs no business record to
   exist before the tag is written, so a stack of blanks can be batch-written
   and claimed on a doorstep. Once reviews-only is proven, two shapes are
   worth revisiting:
-  - `meetcompass.io/r/<business-slug>` — readable, one per business, the
+  - `app.meetcompass.io/r/<business-slug>` — readable, one per business, the
     owner sees their own name in it. `/r/` is currently
     `/r/[businessId]/[activity]`, and two different dynamic segment names
     can't share a position, so this wants
@@ -143,10 +149,15 @@ too — these haven't:
     the segment accepts a uuid *or* a slug and a missing activity defaults to
     `google_review`. That keeps every existing `/r/<uuid>/<activity>` hub
     link working untouched.
-  - `meetcompass.io/<business-slug>` — shortest possible, but a root
+  - `app.meetcompass.io/<business-slug>` — shortest possible, but a root
     catch-all needs a reserved-word list (`admin`, `t`, `r`, `p`, `card`,
     `owner`, `staff`) or a business slug can shadow the app, and it spends
-    the whole root namespace.
+    the whole root namespace. **Weaker option than when this was written:**
+    production moved off the apex entirely on 2026-09-21 —
+    `meetcompass.io` turned out to already host a separate, live
+    GoHighLevel-built site, found while wiring up real DNS. This shape would
+    need the apex freed up first, not just a route added; see the "Why
+    `app.meetcompass.io`" note in `README.md`.
 
   **The constraint on any of this: it is additive, never a migration.** A tag
   stores the whole URL and cannot be rewritten remotely, so `/t/<uuid>` has

@@ -982,5 +982,26 @@ business/tag actions were the gap.
 **Verified live against the new production database:** schema pushed
 cleanly with no conflict prompts (empty database, nothing to disambiguate);
 all 8 tables confirmed present by querying `information_schema.tables`
-directly. The Render service itself answers on its `onrender.com` URL.
-DNS for `app.meetcompass.io` and the first real business are still ahead.
+directly. The Render service itself answers on its `onrender.com` URL. DNS
+for `app.meetcompass.io` (a CNAME at the registrar, pointed at the Render
+hostname) went in the same day, and the app confirmed reachable there —
+production is live. The admin login now also carries a real `ADMIN_PASSWORD`
+set at Render deploy time, separate from the `test-admin-pass` placeholder
+local dev and `db/seed.ts` still use. The first real business is still
+ahead.
+
+---
+
+## 2026-09-21 — A louder way to start a sale from Overview
+
+Added a large, orange **"+ New Business"** button to the top of `/admin`
+(Overview) — same destination as the existing "+ Reviews only" button on
+the Businesses list (`/admin/businesses/quick`), just more prominent, since
+Overview is the page you land on right after signing in and the one most
+likely to be open mid-pitch. Plain literal orange rather than a new design
+token: deliberately distinct from the blue `--accent` used everywhere else
+in the admin shell, so it reads as *the* action on the page instead of
+blending in with the other accent-colored buttons and links.
+
+**Verified live in a browser:** renders top-right of Overview, links
+correctly to `/admin/businesses/quick`.
